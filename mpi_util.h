@@ -1,6 +1,7 @@
+// Tento soubor shromažïuje všechny metody, které se využívají pøi komunikaci
+// pres MPI.
 #ifndef _MPI_UTIL_H_
 #define _MPI_UTIL_H_
-
 
 #include "header.h"
 #include "graph.h"
@@ -11,15 +12,15 @@
 using namespace std;
 
 /**
- *  Tento soubor shromažïuje všechny metody, které se využívají pøi komunikaci
- *  pøes MPI.
- */
-
-/**
  * Hranice citace na neopakovani Iprobe
  */
 #define PROBE_COUNTER_TRESHOLD 100
 
+/**
+ * Barvy pro vypis
+ */
+#define GREEN 2
+#define RED 3
 /**
  * Barvy peška a procesu
  */
@@ -83,8 +84,13 @@ class MPIutil
 
 		void initTree();
 
+		void printMessage(string message, int tag, int color, int destination);
+		int recieveMessage(int tag, int i);
+		void sendMessage(int tag, int i);
 
 
+/* TESTOVANI */
+		int number_did_states;
 
 /*------------------Odsud jsou zatim jen navrhy metod-----------------------------------*/
 

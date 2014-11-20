@@ -16,21 +16,16 @@ using namespace std;
 int main(int argc, char **argv)
 {
 	MPIutil mpiUtil = MPIutil();
-	mpiUtil.loadGraph("graphs/folkman.txt");
+	mpiUtil.loadGraph("graphs/bipartite.txt");
 
 	// Nainicializuje prostredi MPI. 
 	MPI_Init(&argc, &argv);
 	
-	// Tahle inicializace je presmerovana do inicializace grafu
+	// Inicializuje graf a prostredi pro komunikaci v MPI
 	mpiUtil.initMPI();
+	
 	// mpiUtil.graph.printGraph();
 
-	/** Musime nejdrive nastavit do zasobniku koren a jeho pravy list (inicializaci stromu)
-	 *  musime to udelat tady, jako vstup sekvencniho algoritmu
-	 *  predtim ta cast byla na zacatku v metode doSearch();
-	 *  coz tam podle ranku to uz jelo paralelne a prakticky jel zaroven sekvencni a paralelni alg.,
-	 *  kde ten paralelni alg. mel prazdny zasobnik a delal tam neplechu
-	**/
 	mpiUtil.doSearch();
 	
 	mpiUtil.finalizeMPI();

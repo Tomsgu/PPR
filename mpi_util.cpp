@@ -9,6 +9,7 @@ int dest;
 int tag=1;
 int source;
 
+
 MPI_Status status;
 
 //data pro workRequest
@@ -16,10 +17,10 @@ MPI_Request incomingWorkRequest;
 
 MPIutil::MPIutil()
 {
-	processor_color = WHITE;
-	token_color = WHITE;
-	was_white_token_sent = false;
-	want_work = false;
+	this->processor_color = WHITE;
+	this->token_color = WHITE;
+	this->was_white_token_sent = false;
+	this->want_work = false;
 }
 void MPIutil::initMPI() 
 {
@@ -36,12 +37,14 @@ void MPIutil::initMPI()
 	this->token_color = WHITE;
 	this->processor_color = WHITE;
 
-	cout << "[" << rank << "] " << "Initializing world:" << worldSize << ""<< endl;
+	this->printMessage("Initializing world",INIT_DONE, BLACK, worldSize);
+	// cout << "\e[1;32m[" << rank << "] " << "Initializing world:" << worldSize << "\e[0m"<< endl;
 }
 
 void MPIutil::finalizeMPI()
 {
-	cout << "[" << rank << "] " << "Finishing"<< endl;
+	this->printMessage("Finishing", 9999, BLACK, -1);
+	// cout << "[" << rank << "] " << "Finishing"<< endl;
 }
 
 void MPIutil::loadGraph(const string &path)
@@ -83,6 +86,11 @@ void MPIutil::initTree()
 		this->graph.bb_dfsStack.push(receiveRecord);
 		this->want_work = false;
 	}
+	if (this->rank == 0){
+		this->printMessage("Odeslal jsem praci a jdu pracovat.",INIT_DONE2, GREEN, -1);
+	}else{
+		this->printMessage("Prijal jsem praci a jdu pracovat.", INIT_DONE2, RED, -1);
+	}
 }
 
 
@@ -94,7 +102,7 @@ int MPIutil::doSearch()
 	int ahd_index = ((rank+1) % this->worldSize);
 	//zpracování prvního stavu
 	this->initTree();
-
+	cout << "[" << rank << "]" << "Muj zasobnik velikost: " << this->graph.bb_dfsStack.size() << endl;
 	//Hlavní cyklus práce
     //Mùže být pøerušen (break) pouze dvìma zpùsoby:
     //1) Ze sítì pøíjde pøíznak pro ukonèení práce (checkWorkEnd() vrátí 1)
@@ -105,19 +113,58 @@ int MPIutil::doSearch()
 		// pokud je prazdny zasobnik, tak se zeptame na praci
 		if (this->graph.bb_dfsStack.empty())
 		{
-			
-			// Chci praci
-			// cout << "[" << rank << "] " << "Chci praci" << endl;
 			ahd_index = ((ahd_index + 1 )% this->worldSize);
 			if ( ahd_index == this->rank) ahd_index = ((ahd_index + 1 )% this->worldSize);
-			cout << "[" << rank << "] " << "Chci praci " << "[" << ahd_index << "]" << endl;
-			MPI_Send(mpiMessage, 2, MPI_INT,  ahd_index,
-					MSG_WORK_REQUEST, MPI_COMM_WORLD);
+			sendMessage(MSG_WORK_REQUEST, ahd_index);
 			this->want_work = true;
 		}
-		else
+		else{
 			this->graph.bb_dfs();
+			cout << "[" << rank << "]" << "I did:" << ++this->number_did_states << " states."<< endl;
+			
+		}
 	}
+}
+
+// Prijme zpravu a vypise info.
+int MPIutil::recieveMessage(int tag, int i)
+{
+	StackRecord receiveRecord;
+
+	if ( tag == MSG_WORK_SENT ){
+		MPI_Recv(this->mpiMessage, 2, MPI_INT, i, tag, MPI_COMM_WORLD, &status);
+		this->printMessage("Recieve", tag, RED, i);
+		receiveRecord.convertFromIntArray(mpiMessage);
+		if ( !this->graph.bb_dfsStack.size() ){
+			this->graph.bb_dfsStack.push(receiveRecord);
+			this->want_work = false;
+		}else{
+			cerr << "[" << rank << "] " << "Recieved work, but processor haven't sent any workRequest message.";
+			return -1;
+		}
+	}else{
+		MPI_Recv(this->mpiMessage, 2, MPI_INT, /*i*/i, tag, MPI_COMM_WORLD, &status);
+		this->printMessage("Recieve ",tag , RED, i);
+	}
+	if (tag == MSG_TOKEN)
+		return this->mpiMessage[TOKEN_COLOR_INDEX];
+}
+
+void MPIutil::sendMessage(int tag, int i)
+{
+	StackRecord record;
+	
+	if ( tag == MSG_WORK_SENT ){
+		// Vypuleni zasobniku
+		record.setRecord( this->graph.bb_dfsStack.top() );
+		this->graph.bb_dfsStack.pop();
+		// record zabalime do pole, ktere nasledne odesleme pres MPI_send
+		record.convertToIntArray(mpiMessage);
+	}else if ( tag == MSG_TOKEN ){
+		this->mpiMessage[TOKEN_COLOR_INDEX] = this->token_color;		
+	}
+	MPI_Send(this->mpiMessage, 2, MPI_INT, /*destination*/i, /*tag*/tag, MPI_COMM_WORLD);
+	this->printMessage("send", tag, GREEN, i);
 }
 
 /**
@@ -125,106 +172,78 @@ int MPIutil::doSearch()
  */
 int MPIutil::checkIncomingMessages() {
 	int flag;
-	StackRecord record;
-	StackRecord receiveRecord;
+	int tmp_token_color;
 	this->probeCounter++;
 	if ((probeCounter % PROBE_COUNTER_TRESHOLD) == 1)
 	{	
 		while( 1 ){
 			for (int i = ((rank+1) % worldSize); i != rank ; i = ((i+1) % worldSize))
 			{
-				// if(i == rank)
-				// 	continue;
 				MPI_Iprobe(i, MPI_ANY_TAG, MPI_COMM_WORLD, &flag, &status);
 
-				cout << "[" << rank << "] " << status.MPI_TAG << endl;
 				switch(status.MPI_TAG)
 				{
 					case MSG_WORK_REQUEST : // zadost o praci, prijmout a odpovedet
-						// if(flag)
-						// {
-							/*if(previousIncomingWorkRequestRank >= 0)
-							{
-								MPI_Wait(&incomingWorkRequest, &status);
-							}*/
-							cout << "[" << rank << "] " << "MSG_WORK_REQUEST " << "[" << i << "]" << endl;
-							MPI_Recv(this->mpiMessage, 2, MPI_INT, /*i*/i, MSG_WORK_REQUEST, MPI_COMM_WORLD, &status);
-							// cout << "[" << rank << "] " << "MSG_WORK_REQUEST " << "[" << i << "]" << endl;
-							
-							if ( this->graph.bb_dfsStack.size() > 1 ){ // Je prace? 1 prvek = posledni prvek v zasobniku.
-								// Vypuleni zasobniku
-								record.setRecord( this->graph.bb_dfsStack.top() );
-								this->graph.bb_dfsStack.pop();
-								// record zabalime do pole, ktere nasledne odesleme pres MPI_send
-								record.convertToIntArray(mpiMessage);
-								MPI_Send(this->mpiMessage, 2, MPI_INT, /*destination*/i, /*tag*/MSG_WORK_SENT, MPI_COMM_WORLD);
-								cout << "[" << rank << "] " << "sending MSG_NO_WORK_SEND " << "[" << i << "]" << endl;
-							}else{
-								MPI_Send(this->mpiMessage, 2, MPI_INT, i, MSG_WORK_NOWORK, MPI_COMM_WORLD);
-								cout << "[" << rank << "] " << "sending MSG_NO_WORK_SEND " << "[" << i << "]" << endl;
-							}
-						// }
+						this->recieveMessage(MSG_WORK_REQUEST, i );
+						
+						if ( this->graph.bb_dfsStack.size() > 1 ){ // Je prace? 1 prvek = posledni prvek v zasobniku.
+							this->sendMessage( MSG_WORK_SENT, i );
+						}else{
+							this->sendMessage( MSG_WORK_NOWORK, i );
+						}
 						break;
 
 					case MSG_WORK_SENT : 
-							cout << "[" << rank << "] " << "pred MSG_WORK_SENT " << "[" << i << "]" << endl;
-							MPI_Recv(this->mpiMessage, 2, MPI_INT, i, MSG_WORK_SENT, MPI_COMM_WORLD, &status);
-							cout << "[" << rank << "] " << "po MSG_WORK_SENT " << "[" << i << "]" << endl;
-							receiveRecord.convertFromIntArray(mpiMessage);
-							if ( !this->graph.bb_dfsStack.size() ){
-								this->graph.bb_dfsStack.push(receiveRecord);
-								this->want_work = false;
-							}else{
-								cerr << "Recieved work, but processor haven't sent any workRequest message.";
-								return -1;
+						if ( this->recieveMessage(MSG_WORK_SENT, i ) == -1 )
+						{
+							// Dostal praci aniz by oni zadal. Ukonci vsechny procesory.
+							for (int i = ((rank+1) % worldSize); i != rank ; i = ((i+1) % worldSize)){
+								this->sendMessage( MSG_FINISH, i );
 							}
-							// braveni procesoru
-							if ( rank > i ){
-								this->processor_color = BLACK;
-							}
-							return 1;
+							return -1;
+						}
+						// barveni procesoru
+						if ( rank > i ){
+							this->processor_color = BLACK;
+						}
+						break;
 
 					case MSG_WORK_NOWORK : 
 						// odmitnuti zadosti o praci
 						// zkusit jiny proces
 						// a nebo se prepnout do pasivniho stavu a cekat na token
-						MPI_Recv(this->mpiMessage, 2, MPI_INT, i, MSG_WORK_NOWORK, MPI_COMM_WORLD, &status);
+						this->recieveMessage(MSG_WORK_NOWORK, i );
+
 						if ( i == ((rank-1) % worldSize)  )
 						{
-							cout << "SEND TOKEN Predchozi: " << ((rank-1) % worldSize) << endl;
-							cout << "[" << rank << "] " << "send MSG_TOKEN " << "[" << ((rank+1) % worldSize) << "]" << endl;
-							
-							this->mpiMessage[TOKEN_COLOR_INDEX] = this->token_color;
-							MPI_Send(this->mpiMessage, 2, MPI_INT, /*destination*/i, /*tag*/MSG_WORK_SENT, MPI_COMM_WORLD);
-							this->processor_color = WHITE;
-								
+							this->sendMessage( MSG_TOKEN, i );
+							this->processor_color = WHITE;			
 						}
-						cout << "[" << rank << "] " << "MSG_NOWORK " << "[" << i << "]" << endl;
-						this->want_work = false;
+						// this->want_work = true;
 						break;
+
 					case MSG_TOKEN :
-						MPI_Recv(mpiMessage, 2, MPI_INT, i, MSG_TOKEN, MPI_COMM_WORLD, &status);
-						if ( rank == 0 && mpiMessage[TOKEN_COLOR_INDEX] == WHITE ){
+						token_color = this->recieveMessage(MSG_TOKEN, i );
+						if ( rank == 0 && tmp_token_color == WHITE ){
 							for ( int i = 0; i < worldSize; i ++ )
-								MPI_Send(this->mpiMessage, 2, MPI_INT, /*destination*/i, /*tag*/MSG_FINISH, MPI_COMM_WORLD);
+								this->sendMessage( MSG_FINISH, i );
 							return 0;
 						}
-						if ( rank == 0 && mpiMessage[TOKEN_COLOR_INDEX] == WHITE ){
+						if ( rank == 0 && tmp_token_color == WHITE ){
 							this->token_color = WHITE;
 						}
 
 						if ( this->processor_color == BLACK )
 							this->token_color = BLACK;
-						cout << "[" << rank << "] " << "MSG_TOKEN " << "[" << i << "]" << endl;
-						record.convertToIntArray(mpiMessage);
 						break;
+
 					case MSG_FINISH : //konec vypoctu - proces 0 pomoci tokenu zjistil, ze jiz nikdo nema praci
 								   //a rozeslal zpravu ukoncujici vypocet
 								   //mam-li reseni, odeslu procesu 0
 								   //nasledne ukoncim spoji cinnost
 								   //jestlize se meri cas, nezapomen zavolat koncovou barieru MPI_Barrier (MPI_COMM_WORLD)
-								   cout << "[" << rank << "] " << "MSG_FINISH " << "[" << i << "]" << endl;
-								   return 0;
+					   this->recieveMessage(MSG_FINISH, i );
+					   return 0;
 	                case INIT_DONE :
 	                	return 1;
 	                case INIT_DONE2 :
@@ -234,8 +253,10 @@ int MPIutil::checkIncomingMessages() {
 						break;
 				}
 			}
-			if ( this->want_work != true )
+			if ( !this->want_work ){
+				cout << "[" << rank << "]" << "Koncim uz jsem dostal praci." << endl;
 				break;
+			}
 		}
 	}
 	return 1;
@@ -244,4 +265,53 @@ int MPIutil::checkIncomingMessages() {
 void MPIutil::vypis (StackRecord record)
 {
 	cout << "depth " << record.depth << " index " << record.index << endl;
+}
+
+// Obarvi a vypise zpravu pomoci argumentu.
+void MPIutil::printMessage(string message, int tag, int color, int destination)
+{
+	string color_value;
+	string tag_str;
+
+	switch(color)
+	{
+		case GREEN:
+			color_value = "\e[1;32m";
+			break;
+		case RED:
+			color_value = "\e[1;31m";
+			break;
+		default:
+			color_value ="";
+			break;
+	}
+	switch (tag)
+	{
+		case MSG_WORK_REQUEST:
+			tag_str = "MSG_WORK_REQUEST";
+			break;
+		case MSG_WORK_SENT:
+			tag_str = "MSG_WORK_SENT";
+			break;
+		case MSG_WORK_NOWORK:
+			tag_str = "MSG_WORK_NOWORK";
+			break;
+		case MSG_TOKEN:
+			tag_str = "MSG_TOKEN";
+			break;
+		case MSG_FINISH:
+			tag_str = "MSG_FINISH";
+			break;
+		case INIT_DONE:
+			tag_str = "INIT_DONE";
+			break;
+		case INIT_DONE2:
+			tag_str = "INIT_DONE2";
+			break;
+		default:
+			tag_str = tag;
+			break;
+	}
+
+	cout << color_value << "[" << rank << "] " << message << " " << tag_str << " from/to [" << destination << "] \e[0m" << endl;
 }
