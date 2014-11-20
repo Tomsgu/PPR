@@ -2,7 +2,8 @@
 #define _GRAPH_H_
 
 #include "header.h"
-#include "mpi_util.h"
+#include <vector>
+#include <stack>
 
 using namespace std;
 
@@ -22,10 +23,10 @@ class Graph
 		StackRecord record;		
 
 		// Konstruktor
-		Graph(string path);
+		Graph();
 
 		//Nacte graf z textoveho souboru.
-		void loadGraph(string &path);
+		void loadGraph(const string &path);
 
 		// Naplni nam pole defaultnimi hodnotami | fresh a jestli to je obarvene
 		void fillDefaultValues();
@@ -62,15 +63,12 @@ class Graph
 /* -----------PARALLEL IMPLEMENTATION----------------------------------------------------------------------*/
 		//Indikátor, zda-li jsme byli požádáni o práci.
 		int workRequested;
-
-		// Inicializace MPIutil knihovny
-		MPIutil mpiUtil;
 		
 		// Inicializacni cast pro start sekvencniho algoritmu -> priprava pro paralelizaci
 		void initTree();
 
 		// Hlavni metoda pro paralelni zpracovani
-		void doSearch();
+		// void doSearch();
 
 
 /* -----------PARALLEL IMPLEMENTATION----------------------------------------------------------------------*/
